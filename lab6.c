@@ -1,12 +1,3 @@
-/********************************************
- *
- *  Name:
- *  Email:
- *  Section:
- *  Assignment: Lab 6 - Rotary Encoder
- *
- ********************************************/
-
 #include <avr/io.h>
 #include <util/delay.h>
 #include <stdio.h>
@@ -21,22 +12,35 @@ void variable_delay_us(int16_t);
 // up one octave to C5.
 uint16_t frequency[8] =
     { 262, 294, 330, 349, 392, 440, 494, 523 };
-int16_t count = 0;		// Count to display
-int main(void) {
-    uint8_t new_state, old_state;
-    uint8_t changed = 0;  // Flag for state change
-    uint8_t a, b;
 
+//uint8_t new_state, old_state;
+//uint8_t changed = 0;  // Flag for state change
+//uint8_t a, b;
+
+volatile char old_state = 0;
+volatile char new_state = 0;
+volatile int count = 0; // Count to display
+volatile char changed = 0;
+volatile char a, b;
+volatile uint32_t period;
+
+int main(void) {
     // Initialize DDR and PORT registers and LCD
 	lcd_init();
 	DDRC &= ~((1 << 1) | (1 << 5)); 
 	PORTC |= (1 << PC1) | (1 << PC5);
 	DDRB |= (1 << PB4);
 
+	PCICR |= (1 << PCIE1); // Enable PCINT1 (Port C)
+	PCMSK1 |= (1 << PCINT9) | (1 << PCINT13); // Enable interrupts for PC1 and PC5
+	sei();
     // Write a splash screen to the LCD
 	lcd_writecommand(1);
 	lcd_stringout("Juan Moreno");
 	lcd_moveto(1,0);
+
+	a = (PINC & (1 << 1))? 1 : 0;  // Extract bit 1
+	b = (PINC & (1 << 5))? 1 : 0;  // Extract bit 5
 
 	char date[11];
 	snprintf(date, 11, "%d/%d/%d", 8,3, 2006);
@@ -70,11 +74,66 @@ int main(void) {
 	lcd_stringout(buf);
 
     while (1) {                 // Loop forever
-	int change = 0;
+        if (changed) { // Did state change?
+
+			// Output count to LCD
+			lcd_writecommand(1);
+			snprintf(buf, 10, "count=%d", count);
+			lcd_stringout(buf);
+			changed = 0;        // Reset changed flag
+			// Do we play a note?
+
+			if ((count % 8) == 0) {
+				// Determine which note (0-7) to play
+				int index = ((abs(count) % 64) / 8);
+
+				// Find the frequency of the note
+				//frequency[index];
+
+				// Call play_note and pass it the frequency
+				play_note(frequency[index]);
+	    	}
+		}
+    
+	}
+}
+
+/*
+  Play a tone at the frequency specified for one second
+*/
+void play_note(uint16_t freq)
+{
+
+    period = 1000000 / freq;    // Period of note in microseconds
+
+    while (freq--) {
+	PORTB |= (1 << PB4);    // Buzzer output high
+	variable_delay_us(period / 2);  // Delay for half the period
+	PORTB &= ~(1 << PB4);   // Buzzer output log
+	variable_delay_us(period / 2);  // Delay for half the period
+    }
+
+}
+
+/*
+    variable_delay_us - Delay a variable number of microseconds
+*/
+void variable_delay_us(int delay)
+{
+    int i = (delay + 5) / 10;
+
+    while (i--)
+        _delay_us(10);
+}
+
+ISR(PCINT1_vect)
+{
+    // In Task 7, add code to read the encoder inputs and determine the new
+    // count value.
 	// Read the input bits and determine A and B.
 	char x = PINC;
-	char a = (x & (1 << 1))? 1 : 0;  // Extract bit 1
-	char b = (x & (1 << 5))? 1 : 0;  // Extract bit 5
+	a = (x & (1 << 1))? 1 : 0;  // Extract bit 1
+	b = (x & (1 << 5))? 1 : 0;  // Extract bit 5
 
 
 	
@@ -111,73 +170,13 @@ int main(void) {
 	// If state changed, update the value of old_state,
 	// and set a flag that the state has changed.
 	if (new_state != old_state) {
-		int changed;
-		if (new_state>old_state){changed=1;}
-		else if (new_state<old_state){changed=-1;}
-	    if (old_state==3&&new_state==0){changed=1;}
-		else if (old_state==0&&new_state==3){changed=-1;}
-	    old_state = new_state;
-	
+		if ((old_state == 0 && new_state == 1) || (old_state == 1 && new_state == 2) || (old_state == 2 && new_state == 3) ||(old_state == 3 && new_state == 0)) {count++;}
+		else {count--;}
 
-        if (changed) { // Did state change?
-
-			// Output count to LCD
-			count+=changed;
-			lcd_writecommand(1);
-			snprintf(buf, 10, "count=%d", count);
-			lcd_stringout(buf);
-			changed = 0;        // Reset changed flag
-			// Do we play a note?
-		}
-	    if ((count % 8) == 0) {
-		// Determine which note (0-7) to play
-		int index = ((abs(count) % 64) / 8);
-
-		// Find the frequency of the note
-		//frequency[index];
-
-		// Call play_note and pass it the frequency
-		play_note(frequency[index], count);
-	    }
-        
-    }
+    	changed = 1;  // Set flag to indicate state change
 	}
-}
-
-/*
-  Play a tone at the frequency specified for one second
-*/
-void play_note(uint16_t freq, uint16_t cnt)
-{
-    uint32_t period;
-
-    period = 1000000 / freq;    // Period of note in microseconds
-
-    while (freq--) {
-	PORTB |= (1 << PB4);    // Buzzer output high
-	variable_delay_us(period / 2);  // Delay for half the period
-	PORTB &= ~(1 << PB4);   // Buzzer output log
-	variable_delay_us(period / 2);  // Delay for half the period
-    }
-	count = cnt;
-
-}
-
-/*
-    variable_delay_us - Delay a variable number of microseconds
-*/
-void variable_delay_us(int delay)
-{
-    int i = (delay + 5) / 10;
-
-    while (i--)
-        _delay_us(10);
-}
-
-ISR(PCINT1_vect)
-{
-    // In Task 7, add code to read the encoder inputs and determine the new
-    // count value.
+	old_state = new_state;
+	
 
 }
 
@@ -186,10 +185,12 @@ void timer1_init()
 {
     // In Task 8, add code to inititialize TIMER1, but don't start it counting
 
+    TCCR1B |= (1 << WGM12);    
+    TIMSK1 |= (1 << OCIE1A);
 }
+
 ISR(TIMER1_COMPA_vect)
 {
     // In Task 8, add code to change the output bit to the buzzer, and to turn
     // off the timer after enough periods of the signal have gone by.
-
 }
